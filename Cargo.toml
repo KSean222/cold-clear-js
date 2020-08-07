@@ -1,0 +1,43 @@
+[package]
+name = "cold-clear-js"
+version = "0.1.0"
+authors = ["KSean222 <44050761+KSean222@users.noreply.github.com>"]
+edition = "2018"
+description = "JavaScript bindings for the WebAssembly build of the Cold Clear Tetris bot."
+license = "MPL-2.0"
+repository = "https://github.com/KSean222/cold-clear-js"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+release = []
+
+[dependencies]
+cold-clear = { git = "https://github.com/MinusKelvin/cold-clear.git", rev = "42577ab" }
+libtetris = { git = "https://github.com/MinusKelvin/cold-clear.git", rev = "42577ab" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.6", optional = true }
+
+# `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
+# compared to the default allocator's ~10K. It is slower than the default
+# allocator, however.
+#
+# Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
+wee_alloc = { version = "0.4.5", optional = true }
+
+wasm-bindgen = { version = "0.2.65", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.15"
+js-sys = "0.3.44"
+webutil = { git = "https://github.com/MinusKelvin/webutil", rev = "612af23" }
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
