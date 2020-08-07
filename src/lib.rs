@@ -10,7 +10,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 pub struct CCInterface {
-    send: Sender<(InterfaceCommand, Oneshot<Option<Option<(cold_clear::Move, cold_clear::Info)>>>)>
+    send: Sender<InterfaceCommand>
 }
 
 #[derive(Debug)]
@@ -23,7 +23,7 @@ enum InterfaceCommand {
         combo: u32
     },
     NewPiece(Piece),
-    NextMove(u32),
+    NextMove(u32, Oneshot<Option<(cold_clear::Move, cold_clear::Info)>>),
     ForceAnalysisLine(Vec<FallingPiece>)
 }
 
@@ -51,11 +51,11 @@ impl CCInterface {
             .into_serde()
             .map_err(to_js_error)?;
         let mut interface_args = Some((options, evaluator));
-        let (send, recv) = channel::<(_, Oneshot<_>)>();
+        let (send, recv) = channel();
         wasm_bindgen_futures::spawn_local(async move {
             let mut state = WorkerState::Initializing(Board::new(), if options.use_hold { 3 } else { 2 });
-            while let Some((command, send)) = recv.recv().await {
-                send.resolve(match &mut state {
+            while let Some(command) = recv.recv().await {
+                match &mut state {
                     WorkerState::Initializing(board, pieces_left) => {
                         if let InterfaceCommand::NewPiece(piece) = command {
                             board.add_next_piece(piece);
@@ -70,29 +70,25 @@ impl CCInterface {
                                 state = WorkerState::Ready(interface);
                             }
                         }
-                        None
                     }
                     WorkerState::Ready(interface) => {
                         match command {
                             InterfaceCommand::Reset { field, b2b, combo } => {
                                 interface.reset(field, b2b, combo);
-                                None
                             }
                             InterfaceCommand::NewPiece(piece) => {
                                 interface.add_next_piece(piece);
-                                None
                             }
-                            InterfaceCommand::NextMove(incoming) => {
+                            InterfaceCommand::NextMove(incoming, send) => {
                                 interface.request_next_move(incoming);
-                                Some(interface.next_move().await)
+                                send.resolve(interface.next_move().await).unwrap();
                             }
                             InterfaceCommand::ForceAnalysisLine(line) => {
                                 interface.force_analysis_line(line);
-                                None
                             }
                         }
                     }
-                }).unwrap();
+                }
             }
         });
         Ok(Self { send })
@@ -117,7 +113,14 @@ impl CCInterface {
     /// being placed correctly and the returned promise will resolve with the move. If the promise
     /// returns `null`, the bot has died.
     pub fn next_move(&self, incoming: u32) -> js_sys::Promise {
-        self.command(InterfaceCommand::NextMove(incoming))
+        let (send, recv) = oneshot();
+        // `Oneshot<T>` doesn't implement `Debug`, so in the meantime the error is discarded first.
+        self.send.send(InterfaceCommand::NextMove(incoming, send))
+            .map_err(|_| ())
+            .unwrap();
+        wasm_bindgen_futures::future_to_promise(async move {
+            Ok(JsValue::from_serde(&recv.await.unwrap()).unwrap())
+        })
     }
     
     /// Adds a new piece to the end of the queue.
@@ -125,11 +128,14 @@ impl CCInterface {
     /// If speculation is enabled, the piece *must* be in the bag. For example, if in the current
     /// bag you've provided the sequence IJOZT, then the next time you call this function you can
     /// only provide either an L or an S piece.
-    pub fn add_next_piece(&mut self, piece: JsValue) -> Result<js_sys::Promise, JsValue> {
+    pub fn add_next_piece(&mut self, piece: JsValue) -> Result<(), JsValue> {
         let piece = piece
             .into_serde()
             .map_err(to_js_error)?;
-        Ok(self.command(InterfaceCommand::NewPiece(piece)))
+        self.send.send(InterfaceCommand::NewPiece(piece))
+            .map_err(|_| ())
+            .unwrap();
+        Ok(())
     }
 
     /// Resets the playfield, back-to-back status, and combo count.
@@ -144,7 +150,7 @@ impl CCInterface {
     ///
     /// `field` is an array of 40 rows, which are arrays of 10 bools. The first element is the
     /// first row.
-    pub fn reset(&self, field: JsValue, b2b_active: bool, combo: u32) -> Result<js_sys::Promise, JsValue> {
+    pub fn reset(&self, field: JsValue, b2b_active: bool, combo: u32) -> Result<(), JsValue> {
         let src_field: Vec<[bool; 10]> = field
             .into_serde()
             .map_err(to_js_error)?;
@@ -156,27 +162,22 @@ impl CCInterface {
             for (src, dest) in src_field.into_iter().zip(field.iter_mut()) {
                 *dest = src;
             }
-            Ok(self.command(InterfaceCommand::Reset { field, b2b: b2b_active, combo }))
+            self.send.send(InterfaceCommand::Reset { field, b2b: b2b_active, combo })
+                .map_err(|_| ())
+                .unwrap();
+            Ok(())
         }
     }
 
     /// Specifies a line that Cold Clear should analyze before making any moves.
-    pub fn force_analysis_line(&self, path: JsValue) -> Result<js_sys::Promise, JsValue> {
+    pub fn force_analysis_line(&self, path: JsValue) -> Result<(), JsValue> {
         let path = path
             .into_serde()
             .map_err(to_js_error)?;
-        Ok(self.command(InterfaceCommand::ForceAnalysisLine(path)))
-    }
-
-    fn command(&self, command: InterfaceCommand) -> js_sys::Promise {
-        let (send, recv) = oneshot();
-        // `Oneshot<T>` doesn't implement `Debug`, so in the meantime the error is discarded first.
-        self.send.send((command, send))
+        self.send.send(InterfaceCommand::ForceAnalysisLine(path))
             .map_err(|_| ())
             .unwrap();
-        wasm_bindgen_futures::future_to_promise(async move {
-            Ok(JsValue::from_serde(&recv.await.unwrap()).unwrap())
-        })
+        Ok(())
     }
 }
 
