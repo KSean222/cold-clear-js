@@ -175,7 +175,7 @@ impl CCInterface {
             .map_err(|_| ())
             .unwrap();
         wasm_bindgen_futures::future_to_promise(async move {
-            Ok(JsValue::from_serde(&recv.await).unwrap())
+            Ok(JsValue::from_serde(&recv.await.unwrap()).unwrap())
         })
     }
 }
