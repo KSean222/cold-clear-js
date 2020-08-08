@@ -37,7 +37,3 @@ wasm-bindgen = { version = "0.2.65", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.15"
 js-sys = "0.3.44"
 webutil = { git = "https://github.com/MinusKelvin/webutil", rev = "612af23" }
-
-[profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
