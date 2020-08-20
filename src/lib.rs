@@ -40,7 +40,7 @@ fn to_js_error<E: std::fmt::Debug>(error: E) -> JsValue {
 
 #[wasm_bindgen]
 impl CCInterface {
-    /// Launches a bot worker from provided URI with the specified starting board and options.
+    /// Launches a bot worker from the provided URI with the specified starting board and options.
     pub fn launch(worker_uri: String, options: JsValue, evaluator: JsValue) -> Result<CCInterface, JsValue> {
         #[cfg(feature = "console_error_panic_hook")]
         console_error_panic_hook::set_once();
